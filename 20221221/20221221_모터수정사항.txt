@@ -1,0 +1,4 @@
+stator inductance 2.83mH -> 6mH
+Stator resistance 0.388 -> 1.78
+back emf shape coefficients ksn 0.4*24/pi^2*[1/2 0 1/9 0 1/50 0 -1/98 0 -1/81 0 -1/242]-> [0.4 0 0 0 0 0 0 0 0 0 0]
+number of pole 4-> 10
