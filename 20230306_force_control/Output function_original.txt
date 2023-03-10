@@ -1,0 +1,227 @@
+float duty_max=dmax/(2*TS);
+int fs=1/TS;
+float RC_isense=1/fc_isense;
+float RC_speed=1/fc_speed;
+float hall_gain=(fs*6.28)/(12*4); //pole 넘버가 4이브로 4, 속도가 rad/s 이므로 2pi 곱합
+
+//1.속도 제한
+speed_out=speed_sense;
+speed_limit(speed_sense, &dir, &speed_out);
+
+
+//2.속도 & 전류 trapezoid 필터
+//20221019_speed filter
+filter_trapezoid(speed_out, speed_old, speed_trapezoid_old, &Out_speed_trapezoid, TS, RC_speed);
+speed_old=speed_out; //계측값 전 값
+speed_trapezoid_old=Out_speed_trapezoid; //필터 출력 전 값
+
+//20221019 current filter
+filter_trapezoid(isense, isense_old, i_trapezoid_old, &Out_current_trapezoid, TS, RC_isense);
+isense_old = isense; //계측값 전 값
+i_trapezoid_old = Out_current_trapezoid; //필터 출력 전 값
+
+
+//3.속도 rampup
+out_speedref = ramp_up(speed_ref);
+
+//4. 속도 PI 제어기
+err_speed=(out_speedref)-Out_speed_trapezoid;//ramp up 작성 후 지우기 20220919
+
+speed_p=err_speed*kv_p;
+speed_i+=(err_speed+speed_anti)*kv_i;
+speed_pi=speed_p+speed_i;
+
+
+//5. 속도 antiwind up
+if (speed_pi>100)
+{
+	speed_pi_lim=100;
+}
+else if (speed_pi<-100)
+{
+	speed_pi_lim=-100;
+}
+else
+{
+	speed_pi_lim=speed_pi;
+}
+speed_anti=kspeed_anti*(speed_pi_lim-speed_pi);
+
+
+
+//err_i=(Vref)-isense_lpf;
+//6. 전류 PI 제어기
+err_i=(speed_pi_lim)-Out_current_trapezoid;
+i_p=ki_p*err_i;
+i_i+=ki_i*(err_i+i_anti);
+i_pi=i_p+i_i;
+
+
+//7. 전류 antiwind up
+if (i_pi>Vreal*0.95) //Vreal*0.95
+{
+	i_pi_lim=Vreal*0.95;
+}
+else if (i_pi<-Vreal*0.95)
+{
+	i_pi_lim=-Vreal*0.95;
+}
+else
+{
+	i_pi_lim=i_pi;
+}
+i_anti=ki_anti*(i_pi_lim-i_pi);
+
+
+//8. PWM duty 계산
+OUT1 = PWM_duty(i_pi_lim, Vreal, duty_max);
+/*
+
+//9-1 option1:sensorless hall sensor 계산 미완성
+//sensorless 제어용
+switch((int)phase_ina_vol)
+{
+    case 1:
+        switch ((int)phase_inb_vol)
+        {
+           case 1:
+           if  (phase_inc_vol==1)
+           {
+            hall_number =99;
+           }
+           else
+           {
+            hall_number =2;
+           }
+           break;
+           case 0:
+           if  (phase_inc_vol==1)
+           {
+            hall_number=0;
+           }
+            else
+           {
+            hall_number=1;
+           }
+           break;
+        }
+    break;
+    case 0:
+        switch ((int)phase_inb_vol)
+        {
+           case 1:
+           if  (phase_inc_vol==1)
+           {
+            hall_number =4;
+           }
+           else
+           {
+            hall_number =3;
+           }
+           break;
+           case 0:
+           if  (phase_inc_vol==1)
+           {
+            hall_number=5;
+           }
+            else
+           {
+            hall_number=50;
+           }
+           break;
+        }
+    break;
+}
+*/
+//9-2 option2 hall sensor 120도 통전시 ghall 신호 추출 및 duty 적용: 이상적인 시뮬레이션
+//홀이 120도 계측인 경우
+pwm_out_120_hall((int)hall_a, (int)hall_b, (int)hall_c, OUT1, &pwm_ah, &pwm_al, &pwm_bh, &pwm_bl, &pwm_ch, &pwm_cl );
+
+//9-3 option2 hall sensor 180도 통전시 hall 신호 추출 및 duty 적용: 
+//홀이 180도 계측인 경우
+/*
+      speed_lpf_temp=(int)Out_speed_trapezoid;
+if(Out_speed_trapezoid<0)
+{
+      speed_lpf_temp=-(int)Out_speed_trapezoid;
+}
+
+
+hall_number=(((int)hall_a+1)*2)+(((int)hall_b+1))+(((int)hall_c+1)*0.5);
+if(hall_number_out==0)
+{
+hall_number_out=hall_number;
+hall_number_old=hall_number;
+}
+if(hall_offset==0)  //0이면 offset 보정 기능, 1이면 off
+{
+   if(hall_number_old==hall_number)
+   {
+      hall_number_out=hall_number;
+      hall_offset_a=0;
+   }
+  else
+  {
+     hall_offset_a=hall_gain/speed_lpf_temp;
+     if(hall_offset_count<hall_offset_a)
+     {
+        hall_number_out=hall_number_old;
+        hall_offset_count++;
+     }
+     else
+     {
+        hall_offset_count=0;
+        hall_number_out=hall_number;
+     }
+  }
+
+  hall_number_old=hall_number_out;
+  if(dir==-1)
+  {
+    switch (hall_number_out)
+    {
+      case 1:
+        hall_number_out=3;
+        break;
+      case 2:
+        hall_number_out=6;
+        break;
+      case 3:
+        hall_number_out=2;
+        break;
+      case 4:
+        hall_number_out=5;
+        break;
+      case 5:
+        hall_number_out=1;
+        break;
+      case 6:
+        hall_number_out=4;
+        break;
+    }
+  }
+
+}
+else
+  {
+     hall_number_out=hall_number;
+  }
+
+PWM_out(hall_number_out, i_pi_lim, OUT1, &pwm_ah, &pwm_al, &pwm_bh, &pwm_bl, &pwm_ch, &pwm_cl);
+*/
+//10. PWM 출력
+PWM_AH = pwm_ah;
+PWM_AL = pwm_al;
+PWM_BH = pwm_bh;
+PWM_BL = pwm_bl;
+PWM_CH = pwm_ch;
+PWM_CL = pwm_cl;
+
+//11. sensorless 계산
+phase_a_vol=phase_ina_vol;
+phase_b_vol=phase_inb_vol;
+phase_c_vol=phase_inc_vol;
+
+//12. debugging 용
+OUT2 = hall_number;
+OUT3 = test_tick;
